@@ -7,6 +7,9 @@
 
 #include "httpserver.hpp"
 
+#include <sw/redis++/redis++.h>
+
+using namespace sw::redis;
 
 using namespace std;
 
@@ -22,9 +25,12 @@ public:
          cout << "POST request with parameters: " << fruit <<", " << color << endl;
          try
          {
-//redis post code
+             auto val = *redis->command<OptionalStringPair>("time");
+             cout << val.first << endl;
+             redis->set(fruit,color);
+             redis->set(fruit +":time",val.first);
          }
-         catch(const runtime_error& exc)
+         catch(const Error& exc)
          {
              cerr << exc.what() << endl;
              return std::shared_ptr<httpserver::http_response>(new httpserver::string_response(exc.what()));
@@ -42,24 +48,18 @@ public:
     {
         std::lock_guard<std::mutex> lck(mtx);
         string fruit = req.get_arg("fruit");
-//        str.replace(5,3," ");
+        string color;
+        string timestamp;
         cout << "GET request with key parameter: " << fruit << endl;
         try
         {
-//redis get code
-            if (true)
-            {
-//                cout << msg->get_topic() <<  msg->to_string() << endl;
-                cout << "...Ok" << endl;
-                return std::shared_ptr<httpserver::http_response>(new httpserver::string_response("msg->to_string()"));
-            }
-            else
-                return std::shared_ptr<httpserver::http_response>(new httpserver::string_response("zero message received"));
+            color = *redis->get(fruit);
+            timestamp = *redis->get(fruit + string(":time"));
         }
-        catch(const runtime_error& exc)
+        catch(const Error& e)
         {
-            cerr << exc.what() << endl;
-            return std::shared_ptr<httpserver::http_response>(new httpserver::string_response(exc.what()));
+            cerr << e.what() << endl;
+            return std::shared_ptr<httpserver::http_response>(new httpserver::string_response(e.what()));
         }
         catch(...)
         {
@@ -67,23 +67,24 @@ public:
             return std::shared_ptr<httpserver::http_response>(new httpserver::string_response("unknown exception\n"));
         }
         cout << "...Ok" << endl;
-        return std::shared_ptr<httpserver::http_response>(new httpserver::string_response("success!"));
+        return std::shared_ptr<httpserver::http_response>(
+                    new httpserver::string_response(string("color = ") + color + string(" at: ") + timestamp));
     }
 
     const std::shared_ptr<httpserver::http_response> render_DELETE(const httpserver::http_request& req)
     {
         std::lock_guard<std::mutex> lck (mtx);
         string fruit = req.get_arg("fruit");
-//        str.replace(5,3," ");
         cout << "DELETE request with parameter: " << fruit << endl;
         try
         {
-//redis code
+            redis->del(fruit);
+            redis->del(fruit + string(":time"));
         }
-        catch(const runtime_error& exc)
+        catch(const Error& e)
         {
-            cerr << exc.what() << endl;
-            return std::shared_ptr<httpserver::http_response>(new httpserver::string_response(exc.what()));
+            cerr << e.what() << endl;
+            return std::shared_ptr<httpserver::http_response>(new httpserver::string_response(e.what()));
         }
         catch(...)
         {
@@ -94,23 +95,61 @@ public:
         return std::shared_ptr<httpserver::http_response>(new httpserver::string_response("success!"));
     }
 
-    void set_db()
+    bool set_db()
     {
+        try
+        {
+            // Create an Redis object, which is movable but NOT copyable.
+            Redis redis = Redis("tcp://127.0.0.1:6379");
+        }
+        catch (const Error &e)
+        {
+            cerr << e.what() << endl;
+            return false;
+        }
+        catch(...)
+        {
+            cerr << "unknown exception in database connection\n" << endl;
+            return false;
+        }
+        return true;
+    }
 
+    void set_db_1(shared_ptr<Redis> r)
+    {
+        redis = move(r);
     }
 
 private:
-     std::mutex mtx;
+    std::mutex mtx;
+    shared_ptr<Redis> redis;
 };
 
 int main() {
     httpserver::webserver ws = httpserver::create_webserver(5880);
 
+    shared_ptr<Redis> redis;
+    try
+    {
+        redis = make_shared<Redis>("tcp://127.0.0.1:6379");
+    }
+    catch (const Error &e)
+    {
+        cerr << e.what() << endl;
+        return -1;
+    }
+    catch(...)
+    {
+        cerr << "unknown exception in database connection\n" << endl;
+        return -1;
+    }
+
     better_store hwr;
     ws.register_resource("/save/", &hwr);
     ws.register_resource("/show/", &hwr);
     ws.register_resource("/del/", &hwr);
-    hwr.set_db();
+    if (!hwr.set_db()) return -1;
+    hwr.set_db_1(redis);
 
     ws.start(true);
 
