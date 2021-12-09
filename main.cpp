@@ -26,7 +26,6 @@ public:
          try
          {
              auto val = *redis->command<OptionalStringPair>("time");
-             cout << val.first << endl;
              redis->set(fruit,color);
              redis->set(fruit +":time",val.first);
          }
@@ -41,6 +40,7 @@ public:
              return std::shared_ptr<httpserver::http_response>(new httpserver::string_response("unknown exception\n"));
          }
          cout << "...Ok" << endl;
+
          return std::shared_ptr<httpserver::http_response>(new httpserver::string_response("success!"));
      }
 
@@ -50,11 +50,29 @@ public:
         string fruit = req.get_arg("fruit");
         string color;
         string timestamp;
+        string response;
         cout << "GET request with key parameter: " << fruit << endl;
         try
         {
-            color = *redis->get(fruit);
-            timestamp = *redis->get(fruit + string(":time"));
+            auto tmp_p = redis->get(fruit);
+            if(!tmp_p)
+            {
+                response = string("None");
+            }
+
+            else
+            {
+                string tmp_str = *tmp_p;
+                if(tmp_str.empty())
+                {
+                    response = string("None");
+                }
+                else
+                {
+                timestamp = *redis->get(fruit + string(":time"));
+                response = string("color = ") + color + string(" at: ") + timestamp;
+                }
+            }
         }
         catch(const Error& e)
         {
@@ -67,8 +85,9 @@ public:
             return std::shared_ptr<httpserver::http_response>(new httpserver::string_response("unknown exception\n"));
         }
         cout << "...Ok" << endl;
-        return std::shared_ptr<httpserver::http_response>(
-                    new httpserver::string_response(string("color = ") + color + string(" at: ") + timestamp));
+        shared_ptr<httpserver::string_response> rsp = make_shared<httpserver::string_response>(response);
+        return rsp;
+
     }
 
     const std::shared_ptr<httpserver::http_response> render_DELETE(const httpserver::http_request& req)
