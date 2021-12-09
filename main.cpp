@@ -70,7 +70,7 @@ public:
                 else
                 {
                 timestamp = *redis->get(fruit + string(":time"));
-                response = string("color = ") + color + string(" at: ") + timestamp;
+                response = string("color = ") + tmp_str + string(" at: ") + timestamp;
                 }
             }
         }
